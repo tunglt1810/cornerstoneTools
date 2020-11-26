@@ -27,9 +27,9 @@ export default class CrosshairsTool extends BaseTool {
     super(props, defaultProps);
 
     this.eventHandler = this._chooseLocation.bind(this);
-    this.mouseClickCallback = this.eventHandler; // Ok
-    this.mouseDragCallback = this.eventHandler; // Ok
-    this.touchDragCallback = this.eventHandler; // Ok
+    this.mouseClickCallback = this.eventHandler;
+    this.mouseDragCallback = this.eventHandler;
+    this.touchDragCallback = this.eventHandler;
     this.postTouchStartCallback = this.eventHandler;
   }
 
