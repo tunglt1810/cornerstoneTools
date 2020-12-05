@@ -29,7 +29,8 @@ function addRequest(
   preventCache,
   doneCallback,
   failCallback,
-  addToBeginning
+  addToBeginning,
+  customMediaType
 ) {
   if (!requestPool.hasOwnProperty(type)) {
     throw new Error(
@@ -48,6 +49,7 @@ function addRequest(
     preventCache,
     doneCallback,
     failCallback,
+    customMediaType,
   };
 
   // If this imageId is in the cache, resolve it immediately
@@ -152,15 +154,25 @@ function sendRequest(requestDetails) {
 
   let loader;
 
+  // Mod by Triet
+  // add customMediaType to support prefetch custom transfer syntaxes
+  let mediaType;
+
+  if (requestDetails.customMediaType) {
+    mediaType = requestDetails.customMediaType;
+  }
+
   if (requestDetails.preventCache === true) {
     loader = cornerstone.loadImage(imageId, {
       priority,
       type: requestDetails.type,
+      mediaType,
     });
   } else {
     loader = cornerstone.loadAndCacheImage(imageId, {
       priority,
       type: requestDetails.type,
+      mediaType,
     });
   }
 
