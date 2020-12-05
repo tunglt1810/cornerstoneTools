@@ -240,7 +240,8 @@ function prefetch(element) {
       preventCache,
       doneCallback,
       failCallback,
-      true
+      true,
+      configuration.mediaType // Mod by Triet: support custom mediaType for stack prefetcher
     );
   }
 

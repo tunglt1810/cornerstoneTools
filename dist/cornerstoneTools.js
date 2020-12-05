@@ -1,4 +1,4 @@
-/*! cornerstone-tools - 4.0.1 - 2020-11-26 | (c) 2017 Chris Hafey | https://github.com/cornerstonejs/cornerstoneTools */
+/*! cornerstone-tools - 4.0.1 - 2020-12-05 | (c) 2017 Chris Hafey | https://github.com/cornerstonejs/cornerstoneTools */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
 		module.exports = factory();
@@ -74,7 +74,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /******/
 /******/ 	var hotApplyOnUpdate = true;
 /******/ 	// eslint-disable-next-line no-unused-vars
-/******/ 	var hotCurrentHash = "38ea8e180f898c70cef9";
+/******/ 	var hotCurrentHash = "cb3f14dca42fc03deab8";
 /******/ 	var hotRequestTimeout = 10000;
 /******/ 	var hotCurrentModuleData = {};
 /******/ 	var hotCurrentChildModule;
@@ -9833,7 +9833,7 @@ var maxNumRequests = {
 var awake = false;
 var grabDelay = 20;
 
-function addRequest(element, imageId, type, preventCache, doneCallback, failCallback, addToBeginning) {
+function addRequest(element, imageId, type, preventCache, doneCallback, failCallback, addToBeginning, customMediaType) {
   if (!requestPool.hasOwnProperty(type)) {
     throw new Error('Request type must be one of interaction, thumbnail, or prefetch');
   }
@@ -9848,7 +9848,8 @@ function addRequest(element, imageId, type, preventCache, doneCallback, failCall
     imageId: imageId,
     preventCache: preventCache,
     doneCallback: doneCallback,
-    failCallback: failCallback
+    failCallback: failCallback,
+    customMediaType: customMediaType
   }; // If this imageId is in the cache, resolve it immediately
 
   var imageLoadObject = _externalModules_js__WEBPACK_IMPORTED_MODULE_0__["default"].cornerstone.imageCache.getImageLoadObject(imageId);
@@ -9933,17 +9934,26 @@ function sendRequest(requestDetails) {
   }
 
   var priority = requestTypeToLoadPriority(requestDetails);
-  var loader;
+  var loader; // Mod by Triet
+  // add customMediaType to support prefetch custom transfer syntaxes
+
+  var mediaType;
+
+  if (requestDetails.customMediaType) {
+    mediaType = requestDetails.customMediaType;
+  }
 
   if (requestDetails.preventCache === true) {
     loader = cornerstone.loadImage(imageId, {
       priority: priority,
-      type: requestDetails.type
+      type: requestDetails.type,
+      mediaType: mediaType
     });
   } else {
     loader = cornerstone.loadAndCacheImage(imageId, {
       priority: priority,
-      type: requestDetails.type
+      type: requestDetails.type,
+      mediaType: mediaType
     });
   } // Load and cache the image
 
@@ -10638,7 +10648,7 @@ function prefetch(element) {
   try {
     for (var _iterator = imageIdsToPrefetch.reverse()[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
       var imageToLoad = _step.value;
-      _requestPool_requestPoolManager_js__WEBPACK_IMPORTED_MODULE_1__["default"].addRequest(element, imageToLoad, requestType, preventCache, doneCallback, failCallback, true);
+      _requestPool_requestPoolManager_js__WEBPACK_IMPORTED_MODULE_1__["default"].addRequest(element, imageToLoad, requestType, preventCache, doneCallback, failCallback, true, configuration.mediaType);
     } // Try to start the requestPool's grabbing procedure
     // In case it isn't already running
 
