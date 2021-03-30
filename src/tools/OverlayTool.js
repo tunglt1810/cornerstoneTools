@@ -89,11 +89,11 @@ export default class OverlayTool extends BaseTool {
       const layerContext = layerCanvas.getContext('2d');
       // Mod by Triet
       // Add current viewport transform to overlay canvas
-      const transform = external.cornerstone.internal.getTransform(
-        enabledElement
-      );
+      // const transform = external.cornerstone.internal.getTransform(
+      //   enabledElement
+      // );
 
-      layerContext.setTransform(...transform.m);
+      // LayerContext.setTransform(...transform.m);
       layerContext.fillStyle = overlay.fillStyle || 'white';
 
       if (overlay.type === 'R') {

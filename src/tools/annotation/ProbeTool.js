@@ -5,7 +5,7 @@ import { getToolState } from '../../stateManagement/toolState.js';
 import textStyle from '../../stateManagement/textStyle.js';
 import toolColors from '../../stateManagement/toolColors.js';
 // Drawing
-import { getNewContext, draw } from '../../drawing/index.js';
+import { getNewContext, draw, setShadow } from '../../drawing/index.js';
 import drawTextBox from '../../drawing/drawTextBox.js';
 import drawHandles from '../../drawing/drawHandles.js';
 // Utilities
@@ -15,6 +15,7 @@ import { probeCursor } from '../cursors/index.js';
 import { getLogger } from '../../util/logger.js';
 import throttle from '../../util/throttle';
 import { getModule } from '../../store/index';
+import getMoString from '../../util/getMoString.js';
 
 const logger = getLogger('tools:annotation:ProbeTool');
 
@@ -104,8 +105,12 @@ export default class ProbeTool extends BaseAnnotationTool {
   updateCachedStats(image, element, data) {
     const x = Math.round(data.handles.end.x);
     const y = Math.round(data.handles.end.y);
+    const seriesModule =
+      external.cornerstone.metaData.get('generalSeriesModule', image.imageId) ||
+      {};
+    const modality = seriesModule.modality;
 
-    const stats = {};
+    const stats = { modality };
 
     if (x >= 0 && y >= 0 && x < image.columns && y < image.rows) {
       stats.x = x;
@@ -139,7 +144,6 @@ export default class ProbeTool extends BaseAnnotationTool {
     if (!toolData) {
       return;
     }
-
     // We have tool data for this element - iterate over each one and draw it
     const context = getNewContext(eventData.canvasContext.canvas);
     const { image, element } = eventData;
@@ -156,9 +160,11 @@ export default class ProbeTool extends BaseAnnotationTool {
       draw(context, context => {
         const color = toolColors.getColorIfActive(data);
 
+        setShadow(context, this.configuration);
+
         if (this.configuration.drawHandles) {
           // Draw the handles
-          let handleOptions = { handleRadius, color };
+          const handleOptions = { handleRadius, color };
 
           if (renderDashed) {
             handleOptions.lineDash = lineDash;
@@ -178,7 +184,9 @@ export default class ProbeTool extends BaseAnnotationTool {
 
         let text, str;
 
-        const { x, y, storedPixels, sp, mo, suv } = data.cachedStats;
+        const { x, y, storedPixels, sp, mo, suv, modality } = data.cachedStats;
+
+        const moString = getMoString(modality);
 
         if (x >= 0 && y >= 0 && x < image.columns && y < image.rows) {
           text = `${x}, ${y}`;
@@ -189,7 +197,7 @@ export default class ProbeTool extends BaseAnnotationTool {
             }`;
           } else {
             // Draw text
-            str = `SP: ${sp} MO: ${parseFloat(mo.toFixed(3))}`;
+            str = `SP: ${sp} ${moString}: ${parseFloat(mo.toFixed(3))}`;
             if (suv) {
               str += ` SUV: ${parseFloat(suv.toFixed(3))}`;
             }

@@ -1,4 +1,4 @@
-/*! cornerstone-tools - 4.0.1 - 2020-12-05 | (c) 2017 Chris Hafey | https://github.com/cornerstonejs/cornerstoneTools */
+/*! cornerstone-tools - 4.0.1 - 2021-03-30 | (c) 2017 Chris Hafey | https://github.com/cornerstonejs/cornerstoneTools */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
 		module.exports = factory();
@@ -74,7 +74,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /******/
 /******/ 	var hotApplyOnUpdate = true;
 /******/ 	// eslint-disable-next-line no-unused-vars
-/******/ 	var hotCurrentHash = "cb3f14dca42fc03deab8";
+/******/ 	var hotCurrentHash = "3215e583bc895dc7abdd";
 /******/ 	var hotRequestTimeout = 10000;
 /******/ 	var hotCurrentModuleData = {};
 /******/ 	var hotCurrentChildModule;
@@ -2995,11 +2995,8 @@ __webpack_require__.r(__webpack_exports__);
   Object(_path_js__WEBPACK_IMPORTED_MODULE_1__["default"])(context, options, function (context) {
     context.moveTo(corner1.x, corner1.y);
     context.lineTo(corner3.x, corner3.y);
-    context.moveTo(corner3.x, corner3.y);
     context.lineTo(corner2.x, corner2.y);
-    context.moveTo(corner2.x, corner2.y);
     context.lineTo(corner4.x, corner4.y);
-    context.moveTo(corner4.x, corner4.y);
     context.lineTo(corner1.x, corner1.y);
   });
 });
@@ -3582,9 +3579,12 @@ var onImageRendered = function onImageRendered(evt) {
     Object(_eventListeners_onImageRenderedBrushEventHandler_js__WEBPACK_IMPORTED_MODULE_2__["default"])(evt);
   }
 
+  var context = eventData.canvasContext.canvas.getContext('2d');
   toolsToRender.forEach(function (tool) {
     if (tool.renderToolData) {
+      context.save();
       tool.renderToolData(evt);
+      context.restore();
     }
   });
 };
@@ -5608,6 +5608,7 @@ var logger = Object(_util_logger_js__WEBPACK_IMPORTED_MODULE_4__["getLogger"])('
 var isClickEvent = true;
 var preventClickTimeout;
 var clickDelay = 200;
+var addedListeners = new Map();
 
 function getEventButtons(event) {
   if (typeof event.buttons === 'number') {
@@ -5804,12 +5805,16 @@ function mouseDown(e) {
     Object(_util_triggerEvent_js__WEBPACK_IMPORTED_MODULE_3__["default"])(eventData.element, eventType, eventData);
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
+    addedListeners.delete(onMouseMove);
+    addedListeners.delete(onMouseUp);
     element.addEventListener('mousemove', mouseMove);
     isClickEvent = true;
   }
 
   document.addEventListener('mousemove', onMouseMove);
   document.addEventListener('mouseup', onMouseUp);
+  addedListeners.set(onMouseMove, 'mousemove');
+  addedListeners.set(onMouseUp, 'mouseup');
 }
 
 function mouseMove(e) {
@@ -5866,7 +5871,12 @@ function mouseMove(e) {
 function disable(element) {
   element.removeEventListener('mousedown', mouseDown);
   element.removeEventListener('mousemove', mouseMove);
-  element.removeEventListener('dblclick', mouseDoubleClick);
+  element.removeEventListener('dblclick', mouseDoubleClick); // Make sure we have removed any listeners that were added within the above listeners (#1337)
+
+  addedListeners.forEach(function (listener, event) {
+    document.removeEventListener(event, listener);
+  });
+  addedListeners.clear();
 }
 
 function enable(element) {
@@ -8763,6 +8773,7 @@ function _moveEndHandler(toolName, annotation, handle, options, interactionType,
   var eventData = evt.detail;
   var element = eventData.element,
       currentPoints = eventData.currentPoints;
+  var moveNewHandleSuccessful = true;
 
   if (options.hasMoved === false) {
     return;
@@ -8802,13 +8813,14 @@ function _moveEndHandler(toolName, annotation, handle, options, interactionType,
 
   if (options.deleteIfHandleOutsideImage && Object(_anyHandlesOutsideImage_js__WEBPACK_IMPORTED_MODULE_2__["default"])(evt.detail, annotation.handles)) {
     annotation.cancelled = true;
+    moveNewHandleSuccessful = false;
     Object(_stateManagement_toolState_js__WEBPACK_IMPORTED_MODULE_3__["removeToolState"])(element, toolName, annotation);
   }
 
   _endHandler(interactionType, options, element, {
     moveHandler: moveHandler,
     moveEndHandler: moveEndHandler
-  }, doneMovingCallback, true);
+  }, doneMovingCallback, moveNewHandleSuccessful);
 }
 
 function _cancelEventHandler(annotation, handle, options, interactionType, _ref3, element, doneMovingCallback) {
@@ -9833,7 +9845,9 @@ var maxNumRequests = {
 var awake = false;
 var grabDelay = 20;
 
-function addRequest(element, imageId, type, preventCache, doneCallback, failCallback, addToBeginning, customMediaType) {
+function addRequest(element, imageId, type, preventCache, doneCallback, failCallback, addToBeginning) {
+  var options = arguments.length > 7 && arguments[7] !== undefined ? arguments[7] : {};
+
   if (!requestPool.hasOwnProperty(type)) {
     throw new Error('Request type must be one of interaction, thumbnail, or prefetch');
   }
@@ -9849,7 +9863,7 @@ function addRequest(element, imageId, type, preventCache, doneCallback, failCall
     preventCache: preventCache,
     doneCallback: doneCallback,
     failCallback: failCallback,
-    customMediaType: customMediaType
+    options: options
   }; // If this imageId is in the cache, resolve it immediately
 
   var imageLoadObject = _externalModules_js__WEBPACK_IMPORTED_MODULE_0__["default"].cornerstone.imageCache.getImageLoadObject(imageId);
@@ -9934,27 +9948,16 @@ function sendRequest(requestDetails) {
   }
 
   var priority = requestTypeToLoadPriority(requestDetails);
-  var loader; // Mod by Triet
-  // add customMediaType to support prefetch custom transfer syntaxes
-
-  var mediaType;
-
-  if (requestDetails.customMediaType) {
-    mediaType = requestDetails.customMediaType;
-  }
+  var options = Object.assign({}, requestDetails.options, {
+    priority: priority,
+    type: requestDetails.type
+  });
+  var loader;
 
   if (requestDetails.preventCache === true) {
-    loader = cornerstone.loadImage(imageId, {
-      priority: priority,
-      type: requestDetails.type,
-      mediaType: mediaType
-    });
+    loader = cornerstone.loadImage(imageId, options);
   } else {
-    loader = cornerstone.loadAndCacheImage(imageId, {
-      priority: priority,
-      type: requestDetails.type,
-      mediaType: mediaType
-    });
+    loader = cornerstone.loadAndCacheImage(imageId, options);
   } // Load and cache the image
 
 
@@ -10648,7 +10651,8 @@ function prefetch(element) {
   try {
     for (var _iterator = imageIdsToPrefetch.reverse()[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
       var imageToLoad = _step.value;
-      _requestPool_requestPoolManager_js__WEBPACK_IMPORTED_MODULE_1__["default"].addRequest(element, imageToLoad, requestType, preventCache, doneCallback, failCallback, true, configuration.mediaType);
+      _requestPool_requestPoolManager_js__WEBPACK_IMPORTED_MODULE_1__["default"].addRequest(element, imageToLoad, requestType, preventCache, doneCallback, failCallback, true, configuration.mediaType // Mod by Triet: support custom mediaType for stack prefetcher
+      );
     } // Try to start the requestPool's grabbing procedure
     // In case it isn't already running
 
@@ -12195,6 +12199,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../index.js */ "./store/index.js");
 /* harmony import */ var _util_logger_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ../../util/logger.js */ "./util/logger.js");
 /* harmony import */ var _stateManagement_loadHandlerManager_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ../../stateManagement/loadHandlerManager.js */ "./stateManagement/loadHandlerManager.js");
+/* harmony import */ var _setToolMode__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ../setToolMode */ "./store/setToolMode.js");
+
 
 
 
@@ -12261,8 +12267,11 @@ var logger = Object(_util_logger_js__WEBPACK_IMPORTED_MODULE_3__["getLogger"])('
  */
 
 var _removeAllToolsForElement = function _removeAllToolsForElement(enabledElement) {
-  // Note: We may want to `setToolDisabled` before removing from store
-  // Or take other action to remove any lingering eventListeners/state
+  _index_js__WEBPACK_IMPORTED_MODULE_2__["default"].state.tools.forEach(function (tool) {
+    if (tool.element === enabledElement) {
+      Object(_setToolMode__WEBPACK_IMPORTED_MODULE_5__["setToolDisabledForElement"])(tool.element, tool.name);
+    }
+  });
   _index_js__WEBPACK_IMPORTED_MODULE_2__["default"].state.tools = _index_js__WEBPACK_IMPORTED_MODULE_2__["default"].state.tools.filter(function (tool) {
     return tool.element !== enabledElement;
   });
@@ -15624,6 +15633,7 @@ function Synchronizer(event, handler) {
       return;
     }
 
+    var cornerstone = _externalModules_js__WEBPACK_IMPORTED_MODULE_0__["default"].cornerstone;
     initialData.distances = {};
     initialData.imageIds = {
       sourceElements: [],
@@ -15698,7 +15708,7 @@ function Synchronizer(event, handler) {
    */
 
 
-  function fireEvent(sourceElement, eventData) {
+  this.fireEvent = function (sourceElement, eventData) {
     var isDisabled = !that.enabled;
     var noElements = !sourceElements.length || !targetElements.length;
 
@@ -15733,7 +15743,7 @@ function Synchronizer(event, handler) {
       eventHandler(that, sourceElement, targetElement, eventData, positionDifference);
     });
     ignoreFiredEvents = false;
-  }
+  };
   /**
    * Call fireEvent if not ignoring events, and pass along event data
    *
@@ -15743,15 +15753,15 @@ function Synchronizer(event, handler) {
    */
 
 
-  function onEvent(e) {
+  this.onEvent = function (e) {
     var eventData = e.detail;
 
     if (ignoreFiredEvents === true) {
       return;
     }
 
-    fireEvent(e.currentTarget, eventData);
-  }
+    that.fireEvent(e.currentTarget, eventData);
+  };
   /**
    * Add a source element to this synchronizer
    *
@@ -15772,7 +15782,7 @@ function Synchronizer(event, handler) {
     sourceElements.push(element); // Subscribe to the event
 
     event.split(' ').forEach(function (oneEvent) {
-      element.addEventListener(oneEvent, onEvent);
+      element.addEventListener(oneEvent, that.onEvent);
     }); // Update the initial distances between elements
 
     that.getDistances();
@@ -15834,12 +15844,12 @@ function Synchronizer(event, handler) {
     sourceElements.splice(index, 1); // Stop listening for the event
 
     event.split(' ').forEach(function (oneEvent) {
-      element.removeEventListener(oneEvent, onEvent);
+      element.removeEventListener(oneEvent, that.onEvent);
     }); // Update the initial distances between elements
 
     that.getDistances(); // Update everyone listening for events
 
-    fireEvent(element);
+    that.fireEvent(element);
     that.updateDisableHandlers();
   };
   /**
@@ -15910,7 +15920,7 @@ function Synchronizer(event, handler) {
 
   this.displayImage = function (element, image, viewport) {
     ignoreFiredEvents = true;
-    cornerstone.displayImage(element, image, viewport);
+    _externalModules_js__WEBPACK_IMPORTED_MODULE_0__["default"].cornerstone.displayImage(element, image, viewport);
     ignoreFiredEvents = false;
   };
   /**
@@ -15924,7 +15934,7 @@ function Synchronizer(event, handler) {
 
   this.setViewport = function (element, viewport) {
     ignoreFiredEvents = true;
-    cornerstone.setViewport(element, viewport);
+    _externalModules_js__WEBPACK_IMPORTED_MODULE_0__["default"].cornerstone.setViewport(element, viewport);
     ignoreFiredEvents = false;
   };
   /**
@@ -17269,9 +17279,11 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _stateManagement_toolColors_js__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! ../stateManagement/toolColors.js */ "./stateManagement/toolColors.js");
 /* harmony import */ var _util_getRGBPixels_js__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(/*! ../util/getRGBPixels.js */ "./util/getRGBPixels.js");
 /* harmony import */ var _util_calculateSUV_js__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(/*! ../util/calculateSUV.js */ "./util/calculateSUV.js");
-/* harmony import */ var _drawing_index_js__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(/*! ../drawing/index.js */ "./drawing/index.js");
-/* harmony import */ var _drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(/*! ../drawing/drawTextBox.js */ "./drawing/drawTextBox.js");
-/* harmony import */ var _cursors_index_js__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(/*! ./cursors/index.js */ "./tools/cursors/index.js");
+/* harmony import */ var _util_getMoString_js__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(/*! ../util/getMoString.js */ "./util/getMoString.js");
+/* harmony import */ var _drawing_index_js__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(/*! ../drawing/index.js */ "./drawing/index.js");
+/* harmony import */ var _drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(/*! ../drawing/drawTextBox.js */ "./drawing/drawTextBox.js");
+/* harmony import */ var _cursors_index_js__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(/*! ./cursors/index.js */ "./tools/cursors/index.js");
+
 
 
 
@@ -17317,7 +17329,7 @@ function (_BaseTool) {
       },
       defaultStrategy: 'default',
       supportedInteractionTypes: ['Mouse', 'Touch'],
-      svgCursor: _cursors_index_js__WEBPACK_IMPORTED_MODULE_14__["probeCursor"]
+      svgCursor: _cursors_index_js__WEBPACK_IMPORTED_MODULE_15__["probeCursor"]
     };
     _this = _babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_2___default()(this, _babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_3___default()(DragProbeTool).call(this, props, defaultProps));
     _this.touchDragCallback = _this._movingEventCallback.bind(_babel_runtime_helpers_assertThisInitialized__WEBPACK_IMPORTED_MODULE_4___default()(_this));
@@ -17378,7 +17390,7 @@ function defaultStrategy(evt) {
       image = eventData.image,
       currentPoints = eventData.currentPoints,
       canvasContext = eventData.canvasContext;
-  var context = Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_12__["getNewContext"])(canvasContext.canvas);
+  var context = Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_13__["getNewContext"])(canvasContext.canvas);
   var color = _stateManagement_toolColors_js__WEBPACK_IMPORTED_MODULE_9__["default"].getActiveColor();
   var fontHeight = _stateManagement_textStyle_js__WEBPACK_IMPORTED_MODULE_8__["default"].getFontSize();
   var x = Math.round(currentPoints.image.x);
@@ -17388,8 +17400,10 @@ function defaultStrategy(evt) {
     return;
   }
 
-  Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_12__["draw"])(context, function (context) {
-    Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_12__["setShadow"])(context, config);
+  Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_13__["draw"])(context, function (context) {
+    Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_13__["setShadow"])(context, config);
+    var seriesModule = cornerstone.metaData.get('generalSeriesModule', image.imageId);
+    var modality = seriesModule && seriesModule.modality;
     var text = "".concat(x, ", ").concat(y);
     var storedPixels;
     var str;
@@ -17401,9 +17415,10 @@ function defaultStrategy(evt) {
       storedPixels = cornerstone.getStoredPixels(element, x, y, 1, 1);
       var sp = storedPixels[0];
       var mo = sp * image.slope + image.intercept;
-      var suv = Object(_util_calculateSUV_js__WEBPACK_IMPORTED_MODULE_11__["default"])(image, sp); // Draw text
+      var suv = Object(_util_calculateSUV_js__WEBPACK_IMPORTED_MODULE_11__["default"])(image, sp);
+      var moString = Object(_util_getMoString_js__WEBPACK_IMPORTED_MODULE_12__["default"])(modality); // Draw text
 
-      str = "SP: ".concat(sp, " MO: ").concat(parseFloat(mo.toFixed(3)));
+      str = "SP: ".concat(sp, " ").concat(moString, ": ").concat(parseFloat(mo.toFixed(3)));
 
       if (suv) {
         str += " SUV: ".concat(parseFloat(suv.toFixed(3)));
@@ -17415,8 +17430,8 @@ function defaultStrategy(evt) {
       x: currentPoints.canvas.x + 5,
       y: currentPoints.canvas.y - 5
     };
-    Object(_drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_13__["default"])(context, str, textCoords.x, textCoords.y + fontHeight + 5, color);
-    Object(_drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_13__["default"])(context, text, textCoords.x, textCoords.y, color);
+    Object(_drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_14__["default"])(context, str, textCoords.x, textCoords.y + fontHeight + 5, color);
+    Object(_drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_14__["default"])(context, text, textCoords.x, textCoords.y, color);
   });
 }
 /**
@@ -17436,7 +17451,7 @@ function minimalStrategy(evt) {
       currentPoints = eventData.currentPoints,
       canvasContext = eventData.canvasContext,
       isTouchEvent = eventData.isTouchEvent;
-  var context = Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_12__["getNewContext"])(canvasContext.canvas);
+  var context = Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_13__["getNewContext"])(canvasContext.canvas);
   var color = _stateManagement_toolColors_js__WEBPACK_IMPORTED_MODULE_9__["default"].getActiveColor();
   var pageCoordY = currentPoints.page.y - _stateManagement_textStyle_js__WEBPACK_IMPORTED_MODULE_8__["default"].getFontSize() / 2;
 
@@ -17450,8 +17465,8 @@ function minimalStrategy(evt) {
     return;
   }
 
-  Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_12__["draw"])(context, function (context) {
-    Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_12__["setShadow"])(context, config);
+  Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_13__["draw"])(context, function (context) {
+    Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_13__["setShadow"])(context, config);
     var seriesModule = cornerstone.metaData.get('generalSeriesModule', image.imageId);
     var modality = seriesModule && seriesModule.modality;
     var storedPixels;
@@ -17489,7 +17504,7 @@ function minimalStrategy(evt) {
     };
     var handleRadius = 6;
     var padding = 5;
-    var width = Object(_drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_13__["textBoxWidth"])(context, text, padding);
+    var width = Object(_drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_14__["textBoxWidth"])(context, text, padding);
 
     if (isTouchEvent) {
       translation = {
@@ -17498,10 +17513,10 @@ function minimalStrategy(evt) {
       };
     }
 
-    Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_12__["drawCircle"])(context, element, textCoords, handleRadius, {
+    Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_13__["drawCircle"])(context, element, textCoords, handleRadius, {
       color: color
     }, 'canvas');
-    Object(_drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_13__["default"])(context, text, textCoords.x + translation.x, textCoords.y + translation.y, color);
+    Object(_drawing_drawTextBox_js__WEBPACK_IMPORTED_MODULE_14__["default"])(context, text, textCoords.x + translation.x, textCoords.y + translation.y, color);
   });
 }
 
@@ -19117,7 +19132,7 @@ function (_BaseTool) {
     key: "_removeZoomElement",
     value: function _removeZoomElement() {
       if (this.zoomElement !== undefined) {
-        _externalModules_js__WEBPACK_IMPORTED_MODULE_6__["default"].cornerstone.disable(this.zoomCanvas);
+        _externalModules_js__WEBPACK_IMPORTED_MODULE_6__["default"].cornerstone.disable(this.zoomElement);
         this.zoomElement = undefined;
         this.zoomCanvas = undefined;
       }
@@ -19365,21 +19380,18 @@ var getOrientationMarkerPositions = function getOrientationMarkerPositions(eleme
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "default", function() { return OverlayTool; });
-/* harmony import */ var _babel_runtime_helpers_toConsumableArray__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @babel/runtime/helpers/toConsumableArray */ "../node_modules/@babel/runtime/helpers/toConsumableArray.js");
-/* harmony import */ var _babel_runtime_helpers_toConsumableArray__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_toConsumableArray__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var _babel_runtime_helpers_classCallCheck__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @babel/runtime/helpers/classCallCheck */ "../node_modules/@babel/runtime/helpers/classCallCheck.js");
-/* harmony import */ var _babel_runtime_helpers_classCallCheck__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_classCallCheck__WEBPACK_IMPORTED_MODULE_1__);
-/* harmony import */ var _babel_runtime_helpers_createClass__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @babel/runtime/helpers/createClass */ "../node_modules/@babel/runtime/helpers/createClass.js");
-/* harmony import */ var _babel_runtime_helpers_createClass__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_createClass__WEBPACK_IMPORTED_MODULE_2__);
-/* harmony import */ var _babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! @babel/runtime/helpers/possibleConstructorReturn */ "../node_modules/@babel/runtime/helpers/possibleConstructorReturn.js");
-/* harmony import */ var _babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_3__);
-/* harmony import */ var _babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! @babel/runtime/helpers/getPrototypeOf */ "../node_modules/@babel/runtime/helpers/getPrototypeOf.js");
-/* harmony import */ var _babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_4___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_4__);
-/* harmony import */ var _babel_runtime_helpers_inherits__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! @babel/runtime/helpers/inherits */ "../node_modules/@babel/runtime/helpers/inherits.js");
-/* harmony import */ var _babel_runtime_helpers_inherits__WEBPACK_IMPORTED_MODULE_5___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_inherits__WEBPACK_IMPORTED_MODULE_5__);
-/* harmony import */ var _externalModules_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ../externalModules.js */ "./externalModules.js");
-/* harmony import */ var _base_BaseTool_js__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./base/BaseTool.js */ "./tools/base/BaseTool.js");
-
+/* harmony import */ var _babel_runtime_helpers_classCallCheck__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @babel/runtime/helpers/classCallCheck */ "../node_modules/@babel/runtime/helpers/classCallCheck.js");
+/* harmony import */ var _babel_runtime_helpers_classCallCheck__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_classCallCheck__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _babel_runtime_helpers_createClass__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @babel/runtime/helpers/createClass */ "../node_modules/@babel/runtime/helpers/createClass.js");
+/* harmony import */ var _babel_runtime_helpers_createClass__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_createClass__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony import */ var _babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @babel/runtime/helpers/possibleConstructorReturn */ "../node_modules/@babel/runtime/helpers/possibleConstructorReturn.js");
+/* harmony import */ var _babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_2__);
+/* harmony import */ var _babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! @babel/runtime/helpers/getPrototypeOf */ "../node_modules/@babel/runtime/helpers/getPrototypeOf.js");
+/* harmony import */ var _babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_3__);
+/* harmony import */ var _babel_runtime_helpers_inherits__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! @babel/runtime/helpers/inherits */ "../node_modules/@babel/runtime/helpers/inherits.js");
+/* harmony import */ var _babel_runtime_helpers_inherits__WEBPACK_IMPORTED_MODULE_4___default = /*#__PURE__*/__webpack_require__.n(_babel_runtime_helpers_inherits__WEBPACK_IMPORTED_MODULE_4__);
+/* harmony import */ var _externalModules_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ../externalModules.js */ "./externalModules.js");
+/* harmony import */ var _base_BaseTool_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ./base/BaseTool.js */ "./tools/base/BaseTool.js");
 
 
 
@@ -19402,14 +19414,14 @@ __webpack_require__.r(__webpack_exports__);
 var OverlayTool =
 /*#__PURE__*/
 function (_BaseTool) {
-  _babel_runtime_helpers_inherits__WEBPACK_IMPORTED_MODULE_5___default()(OverlayTool, _BaseTool);
+  _babel_runtime_helpers_inherits__WEBPACK_IMPORTED_MODULE_4___default()(OverlayTool, _BaseTool);
 
   function OverlayTool() {
     var _this;
 
     var configuration = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
 
-    _babel_runtime_helpers_classCallCheck__WEBPACK_IMPORTED_MODULE_1___default()(this, OverlayTool);
+    _babel_runtime_helpers_classCallCheck__WEBPACK_IMPORTED_MODULE_0___default()(this, OverlayTool);
 
     var defaultConfig = {
       name: 'Overlay',
@@ -19417,12 +19429,12 @@ function (_BaseTool) {
       mixins: ['enabledOrDisabledBinaryTool']
     };
     var initialConfiguration = Object.assign(defaultConfig, configuration);
-    _this = _babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_3___default()(this, _babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_4___default()(OverlayTool).call(this, initialConfiguration));
+    _this = _babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_2___default()(this, _babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_3___default()(OverlayTool).call(this, initialConfiguration));
     _this.initialConfiguration = initialConfiguration;
     return _this;
   }
 
-  _babel_runtime_helpers_createClass__WEBPACK_IMPORTED_MODULE_2___default()(OverlayTool, [{
+  _babel_runtime_helpers_createClass__WEBPACK_IMPORTED_MODULE_1___default()(OverlayTool, [{
     key: "enabledCallback",
     value: function enabledCallback(element) {
       this.forceImageUpdate(element);
@@ -19435,10 +19447,10 @@ function (_BaseTool) {
   }, {
     key: "forceImageUpdate",
     value: function forceImageUpdate(element) {
-      var enabledElement = _externalModules_js__WEBPACK_IMPORTED_MODULE_6__["default"].cornerstone.getEnabledElement(element);
+      var enabledElement = _externalModules_js__WEBPACK_IMPORTED_MODULE_5__["default"].cornerstone.getEnabledElement(element);
 
       if (enabledElement.image) {
-        _externalModules_js__WEBPACK_IMPORTED_MODULE_6__["default"].cornerstone.updateImage(element);
+        _externalModules_js__WEBPACK_IMPORTED_MODULE_5__["default"].cornerstone.updateImage(element);
       }
     }
   }, {
@@ -19454,7 +19466,7 @@ function (_BaseTool) {
         return;
       }
 
-      var overlayPlaneMetadata = _externalModules_js__WEBPACK_IMPORTED_MODULE_6__["default"].cornerstone.metaData.get('overlayPlaneModule', image.imageId);
+      var overlayPlaneMetadata = _externalModules_js__WEBPACK_IMPORTED_MODULE_5__["default"].cornerstone.metaData.get('overlayPlaneModule', image.imageId);
 
       if (!overlayPlaneMetadata || !overlayPlaneMetadata.overlays || !overlayPlaneMetadata.overlays.length) {
         return;
@@ -19476,9 +19488,11 @@ function (_BaseTool) {
         layerCanvas.height = enabledElement.canvas.offsetHeight;
         var layerContext = layerCanvas.getContext('2d'); // Mod by Triet
         // Add current viewport transform to overlay canvas
+        // const transform = external.cornerstone.internal.getTransform(
+        //   enabledElement
+        // );
+        // LayerContext.setTransform(...transform.m);
 
-        var transform = _externalModules_js__WEBPACK_IMPORTED_MODULE_6__["default"].cornerstone.internal.getTransform(enabledElement);
-        layerContext.setTransform.apply(layerContext, _babel_runtime_helpers_toConsumableArray__WEBPACK_IMPORTED_MODULE_0___default()(transform.m));
         layerContext.fillStyle = overlay.fillStyle || 'white';
 
         if (overlay.type === 'R') {
@@ -19506,7 +19520,7 @@ function (_BaseTool) {
   }]);
 
   return OverlayTool;
-}(_base_BaseTool_js__WEBPACK_IMPORTED_MODULE_7__["default"]);
+}(_base_BaseTool_js__WEBPACK_IMPORTED_MODULE_6__["default"]);
 
 
 
@@ -19976,6 +19990,12 @@ function (_BaseTool) {
       },
       defaultStrategy: 'default',
       supportedInteractionTypes: ['Mouse', 'Touch'],
+      configuration: {
+        roundAngles: false,
+        flipHorizontal: false,
+        flipVertical: false,
+        rotateScale: 1
+      },
       svgCursor: _cursors_index_js__WEBPACK_IMPORTED_MODULE_8__["rotateCursor"]
     };
     return _babel_runtime_helpers_possibleConstructorReturn__WEBPACK_IMPORTED_MODULE_2___default()(this, _babel_runtime_helpers_getPrototypeOf__WEBPACK_IMPORTED_MODULE_3___default()(RotateTool).call(this, props, defaultProps));
@@ -20016,34 +20036,31 @@ function (_BaseTool) {
 
 
 function defaultStrategy(evt) {
-  var eventData = evt.detail;
-  var element = eventData.element,
-      viewport = eventData.viewport;
-  var initialRotation = viewport.initialRotation ? viewport.initialRotation : 0; // Calculate the center of the image
+  var _this$configuration = this.configuration,
+      roundAngles = _this$configuration.roundAngles,
+      rotateScale = _this$configuration.rotateScale;
+  var _evt$detail = evt.detail,
+      element = _evt$detail.element,
+      viewport = _evt$detail.viewport,
+      startPoints = _evt$detail.startPoints,
+      currentPoints = _evt$detail.currentPoints;
+  var initialRotation = viewport.initialRotation; // Calculate the center of the image
 
   var rect = element.getBoundingClientRect(element);
   var width = element.clientWidth,
       height = element.clientHeight;
-
-  if (!eventData.startPoints) {
-    eventData.startPoints = eventData.currentPoints;
-  }
-
-  var initialPoints = {
-    x: eventData.startPoints.client.x,
-    y: eventData.startPoints.client.y
-  };
   var scale = viewport.scale,
       translation = viewport.translation;
   var centerPoints = {
     x: rect.left + width / 2 + translation.x * scale,
     y: rect.top + height / 2 + translation.y * scale
   };
-  var currentPoints = {
-    x: eventData.currentPoints.client.x,
-    y: eventData.currentPoints.client.y
-  };
-  var angleInfo = Object(_util_angleBetweenPoints_js__WEBPACK_IMPORTED_MODULE_5__["default"])(centerPoints, initialPoints, currentPoints);
+  var angleInfo = Object(_util_angleBetweenPoints_js__WEBPACK_IMPORTED_MODULE_5__["default"])(centerPoints, startPoints.client, currentPoints.client);
+  angleInfo.angle *= rotateScale;
+
+  if (roundAngles) {
+    angleInfo.angle = Math.ceil(angleInfo.angle);
+  }
 
   if (angleInfo.direction < 0) {
     angleInfo.angle = -angleInfo.angle;
@@ -20052,19 +20069,55 @@ function defaultStrategy(evt) {
   viewport.rotation = initialRotation + angleInfo.angle;
 }
 
-var horizontalStrategy = function horizontalStrategy(evt) {
-  var eventData = evt.detail;
-  var viewport = eventData.viewport,
-      deltaPoints = eventData.deltaPoints;
-  viewport.rotation += deltaPoints.page.x / viewport.scale;
-};
+function horizontalStrategy(evt) {
+  var _this$configuration2 = this.configuration,
+      roundAngles = _this$configuration2.roundAngles,
+      flipHorizontal = _this$configuration2.flipHorizontal,
+      rotateScale = _this$configuration2.rotateScale;
+  var _evt$detail2 = evt.detail,
+      viewport = _evt$detail2.viewport,
+      startPoints = _evt$detail2.startPoints,
+      currentPoints = _evt$detail2.currentPoints;
+  var initialRotation = viewport.initialRotation;
+  var initialPointX = startPoints.client.x;
+  var currentPointX = currentPoints.client.x;
+  var angle = (currentPointX - initialPointX) * rotateScale;
 
-var verticalStrategy = function verticalStrategy(evt) {
-  var eventData = evt.detail;
-  var viewport = eventData.viewport,
-      deltaPoints = eventData.deltaPoints;
-  viewport.rotation += deltaPoints.page.y / viewport.scale;
-};
+  if (roundAngles) {
+    angle = Math.round(Math.abs(angle)) * (angle > 0 ? 1 : -1);
+  }
+
+  if (flipHorizontal) {
+    angle = -angle;
+  }
+
+  viewport.rotation = initialRotation + angle;
+}
+
+function verticalStrategy(evt) {
+  var _this$configuration3 = this.configuration,
+      roundAngles = _this$configuration3.roundAngles,
+      flipVertical = _this$configuration3.flipVertical,
+      rotateScale = _this$configuration3.rotateScale;
+  var _evt$detail3 = evt.detail,
+      viewport = _evt$detail3.viewport,
+      startPoints = _evt$detail3.startPoints,
+      currentPoints = _evt$detail3.currentPoints;
+  var initialRotation = viewport.initialRotation;
+  var initialPointY = startPoints.client.y;
+  var currentPointY = currentPoints.client.y;
+  var angle = (currentPointY - initialPointY) * rotateScale;
+
+  if (roundAngles) {
+    angle = Math.round(Math.abs(angle)) * (angle > 0 ? 1 : -1);
+  }
+
+  if (flipVertical) {
+    angle = -angle;
+  }
+
+  viewport.rotation = initialRotation + angle;
+}
 
 /***/ }),
 
@@ -22139,7 +22192,8 @@ function (_BaseAnnotationTool) {
         drawHandlesOnHover: false,
         hideHandlesIfMoving: false,
         arrowFirst: true,
-        renderDashed: false
+        renderDashed: false,
+        allowEmptyLabel: false
       },
       svgCursor: _cursors_index_js__WEBPACK_IMPORTED_MODULE_21__["arrowAnnotateCursor"]
     };
@@ -22320,7 +22374,8 @@ function (_BaseAnnotationTool) {
       var _this3 = this;
 
       var element = evt.detail.element;
-      var measurementData = this.createNewMeasurement(evt); // Associate this data with this imageId so we can render it and manipulate it
+      var measurementData = this.createNewMeasurement(evt);
+      var allowEmptyLabel = this.configuration.allowEmptyLabel; // Associate this data with this imageId so we can render it and manipulate it
 
       Object(_stateManagement_toolState_js__WEBPACK_IMPORTED_MODULE_15__["addToolState"])(element, this.name, measurementData);
       _externalModules_js__WEBPACK_IMPORTED_MODULE_5__["default"].cornerstone.updateImage(element);
@@ -22328,32 +22383,23 @@ function (_BaseAnnotationTool) {
         if (success) {
           if (measurementData.text === undefined) {
             _this3.configuration.getTextCallback(function (text) {
-              if (text) {
+              if (text || allowEmptyLabel) {
                 measurementData.text = text;
+                measurementData.active = false;
+                var modifiedEventData = {
+                  toolName: _this3.name,
+                  toolType: _this3.name,
+                  // Deprecation notice: toolType will be replaced by toolName
+                  element: element,
+                  measurementData: measurementData
+                };
+                _externalModules_js__WEBPACK_IMPORTED_MODULE_5__["default"].cornerstone.updateImage(element);
+                Object(_util_triggerEvent_js__WEBPACK_IMPORTED_MODULE_14__["default"])(element, _events_js__WEBPACK_IMPORTED_MODULE_7__["default"].MEASUREMENT_COMPLETED, modifiedEventData);
               } else {
                 Object(_stateManagement_toolState_js__WEBPACK_IMPORTED_MODULE_15__["removeToolState"])(element, _this3.name, measurementData);
               }
-
-              measurementData.active = false;
-              _externalModules_js__WEBPACK_IMPORTED_MODULE_5__["default"].cornerstone.updateImage(element);
-              Object(_util_triggerEvent_js__WEBPACK_IMPORTED_MODULE_14__["default"])(element, _events_js__WEBPACK_IMPORTED_MODULE_7__["default"].MEASUREMENT_MODIFIED, {
-                toolName: _this3.name,
-                toolType: _this3.name,
-                // Deprecation notice: toolType will be replaced by toolName
-                element: element,
-                measurementData: measurementData
-              });
             }, evt.detail);
           }
-
-          var modifiedEventData = {
-            toolName: _this3.name,
-            toolType: _this3.name,
-            // Deprecation notice: toolType will be replaced by toolName
-            element: element,
-            measurementData: measurementData
-          };
-          Object(_util_triggerEvent_js__WEBPACK_IMPORTED_MODULE_14__["default"])(element, _events_js__WEBPACK_IMPORTED_MODULE_7__["default"].MEASUREMENT_COMPLETED, modifiedEventData);
         } else {
           Object(_stateManagement_toolState_js__WEBPACK_IMPORTED_MODULE_15__["removeToolState"])(element, _this3.name, measurementData);
         }
@@ -23814,7 +23860,8 @@ function _createTextBoxContent(context, isColorImage) {
       otherLines.push("".concat(meanString).concat(meanSuvString));
       otherLines.push("".concat(stdDevString, "     ").concat(stdDevSuvString));
     } else {
-      otherLines.push("".concat(meanString, "     ").concat(stdDevString));
+      otherLines.push("".concat(meanString));
+      otherLines.push("".concat(stdDevString));
     }
 
     if (showMinMax) {
@@ -25961,7 +26008,7 @@ function (_BaseAnnotationTool) {
 
 
       function textBoxText(annotation, rowPixelSpacing, colPixelSpacing) {
-        var measuredValue = _sanitizeMeasuredValue(annotation.length); // measured value is not defined, return empty string
+        var measuredValue = _sanitizeMeasuredValue(annotation.length); // Measured value is not defined, return empty string
 
 
         if (!measuredValue) {
@@ -26044,6 +26091,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _util_logger_js__WEBPACK_IMPORTED_MODULE_16__ = __webpack_require__(/*! ../../util/logger.js */ "./util/logger.js");
 /* harmony import */ var _util_throttle__WEBPACK_IMPORTED_MODULE_17__ = __webpack_require__(/*! ../../util/throttle */ "./util/throttle.js");
 /* harmony import */ var _store_index__WEBPACK_IMPORTED_MODULE_18__ = __webpack_require__(/*! ../../store/index */ "./store/index.js");
+/* harmony import */ var _util_getMoString_js__WEBPACK_IMPORTED_MODULE_19__ = __webpack_require__(/*! ../../util/getMoString.js */ "./util/getMoString.js");
 
 
 
@@ -26059,6 +26107,7 @@ __webpack_require__.r(__webpack_exports__);
 
 
  // Utilities
+
 
 
 
@@ -26158,7 +26207,11 @@ function (_BaseAnnotationTool) {
     value: function updateCachedStats(image, element, data) {
       var x = Math.round(data.handles.end.x);
       var y = Math.round(data.handles.end.y);
-      var stats = {};
+      var seriesModule = _externalModules_js__WEBPACK_IMPORTED_MODULE_5__["default"].cornerstone.metaData.get('generalSeriesModule', image.imageId) || {};
+      var modality = seriesModule.modality;
+      var stats = {
+        modality: modality
+      };
 
       if (x >= 0 && y >= 0 && x < image.columns && y < image.rows) {
         stats.x = x;
@@ -26208,6 +26261,7 @@ function (_BaseAnnotationTool) {
 
         Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_10__["draw"])(context, function (context) {
           var color = _stateManagement_toolColors_js__WEBPACK_IMPORTED_MODULE_9__["default"].getColorIfActive(data);
+          Object(_drawing_index_js__WEBPACK_IMPORTED_MODULE_10__["setShadow"])(context, _this2.configuration);
 
           if (_this2.configuration.drawHandles) {
             // Draw the handles
@@ -26239,7 +26293,9 @@ function (_BaseAnnotationTool) {
               storedPixels = _data$cachedStats.storedPixels,
               sp = _data$cachedStats.sp,
               mo = _data$cachedStats.mo,
-              suv = _data$cachedStats.suv;
+              suv = _data$cachedStats.suv,
+              modality = _data$cachedStats.modality;
+          var moString = Object(_util_getMoString_js__WEBPACK_IMPORTED_MODULE_19__["default"])(modality);
 
           if (x >= 0 && y >= 0 && x < image.columns && y < image.rows) {
             text = "".concat(x, ", ").concat(y);
@@ -26248,7 +26304,7 @@ function (_BaseAnnotationTool) {
               str = "R: ".concat(storedPixels[0], " G: ").concat(storedPixels[1], " B: ").concat(storedPixels[2]);
             } else {
               // Draw text
-              str = "SP: ".concat(sp, " MO: ").concat(parseFloat(mo.toFixed(3)));
+              str = "SP: ".concat(sp, " ").concat(moString, ": ").concat(parseFloat(mo.toFixed(3)));
 
               if (suv) {
                 str += " SUV: ".concat(parseFloat(suv.toFixed(3)));
@@ -26765,7 +26821,8 @@ function _createTextBoxContent(context, isColorImage, _ref, modality, hasPixelSp
       otherLines.push("".concat(meanString).concat(meanSuvString));
       otherLines.push("".concat(stdDevString, "     ").concat(stdDevSuvString));
     } else {
-      otherLines.push("".concat(meanString, "     ").concat(stdDevString));
+      otherLines.push("".concat(meanString));
+      otherLines.push("".concat(stdDevString));
     }
 
     if (showMinMax) {
@@ -32811,7 +32868,7 @@ __webpack_require__.r(__webpack_exports__);
   }
 
   var acquisitionTimeInSeconds = fracToDec(seriesAcquisitionTime.fractionalSeconds || 0) + seriesAcquisitionTime.seconds + seriesAcquisitionTime.minutes * 60 + seriesAcquisitionTime.hours * 60 * 60;
-  var injectionStartTimeInSeconds = fracToDec(startTime.fractionalSeconds) + startTime.seconds + startTime.minutes * 60 + startTime.hours * 60 * 60;
+  var injectionStartTimeInSeconds = fracToDec(startTime.fractionalSeconds || 0) + startTime.seconds + startTime.minutes * 60 + startTime.hours * 60 * 60;
   var durationInSeconds = acquisitionTimeInSeconds - injectionStartTimeInSeconds;
   var correctedDose = totalDose * Math.exp(-durationInSeconds * Math.log(2) / halfLife);
   var suv = modalityPixelValue * patientWeight / correctedDose * 1000;
@@ -32902,6 +32959,12 @@ function convertToVector3(arrayOrVector3) {
 
   if (arrayOrVector3 instanceof cornerstoneMath.Vector3) {
     return arrayOrVector3;
+  }
+
+  var keys = Object.keys(arrayOrVector3);
+
+  if (keys.includes('x') && keys.includes('y') && keys.includes('z')) {
+    return new cornerstoneMath.Vector3(arrayOrVector3.x, arrayOrVector3.y, arrayOrVector3.z);
   }
 
   return new cornerstoneMath.Vector3(arrayOrVector3[0], arrayOrVector3[1], arrayOrVector3[2]);
@@ -35562,6 +35625,27 @@ function isMobileDevice() {
 }
 
 
+
+/***/ }),
+
+/***/ "./util/getMoString.js":
+/*!*****************************!*\
+  !*** ./util/getMoString.js ***!
+  \*****************************/
+/*! exports provided: default */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony default export */ __webpack_exports__["default"] = (function (modality) {
+  var str = 'MO';
+
+  if (modality === 'CT') {
+    str = 'HU';
+  }
+
+  return str;
+});
 
 /***/ }),
 
