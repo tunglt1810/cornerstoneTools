@@ -5,6 +5,7 @@ import textStyle from '../stateManagement/textStyle.js';
 import toolColors from '../stateManagement/toolColors.js';
 import getRGBPixels from '../util/getRGBPixels.js';
 import calculateSUV from '../util/calculateSUV.js';
+import getMoString from '../util/getMoString.js';
 import {
   getNewContext,
   draw,
@@ -105,6 +106,11 @@ function defaultStrategy(evt) {
 
   draw(context, context => {
     setShadow(context, config);
+    const seriesModule = cornerstone.metaData.get(
+      'generalSeriesModule',
+      image.imageId
+    );
+    const modality = seriesModule && seriesModule.modality;
 
     const text = `${x}, ${y}`;
     let storedPixels;
@@ -120,9 +126,10 @@ function defaultStrategy(evt) {
       const sp = storedPixels[0];
       const mo = sp * image.slope + image.intercept;
       const suv = calculateSUV(image, sp);
-
+      const moString = getMoString(modality);
       // Draw text
-      str = `SP: ${sp} MO: ${parseFloat(mo.toFixed(3))}`;
+
+      str = `SP: ${sp} ${moString}: ${parseFloat(mo.toFixed(3))}`;
       if (suv) {
         str += ` SUV: ${parseFloat(suv.toFixed(3))}`;
       }
